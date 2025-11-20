@@ -1,9 +1,8 @@
 mod helpers;
 
-use crate::helpers::{RSheet, construct_cell};
+use crate::helpers::{RSheet, construct_cell, get_cell_value_or_error, build_vector, build_vector_by_row, build_matrix};
 use rsheet_lib::cell_expr::{CellArgument, CellExpr};
-use rsheet_lib::cell_value::CellValue;
-use rsheet_lib::cells::{column_name_to_number, column_number_to_name};
+use rsheet_lib::cells::{column_name_to_number};
 use rsheet_lib::command::Command;
 use rsheet_lib::connect::{
     Connection, Manager, ReadMessageResult, Reader, WriteMessageResult, Writer,
@@ -41,11 +40,7 @@ where
                     Ok(command) => match command {
                         Command::Get { cell_identifier } => {
                             let cell = construct_cell(cell_identifier);
-                            let value = if let CellArgument::Value(e) = new_sheet.get(&cell) {
-                                e
-                            } else {
-                                CellValue::Error("Cell does not contain a value".to_string())
-                            };
+                            let value = get_cell_value_or_error(&new_sheet, &cell);
                             let reply = Reply::Value(cell, value);
 
                             match send.write_message(reply) {
@@ -88,53 +83,19 @@ where
                                     let second_column_index = column_name_to_number(&second_cell_column);
 
                                     // Retrieve the row number of the 2 cells
-                                    let first_cell_row = &new_vec_name[0][1..].parse::<i32>().unwrap();
-                                    let second_cell_row = &new_vec_name[1][1..].parse::<i32>().unwrap();
+                                    let first_cell_row = &new_vec_name[0][1..].parse::<u32>().unwrap();
+                                    let second_cell_row = &new_vec_name[1][1..].parse::<u32>().unwrap();
 
 
                                     // Check if the 2 cells are in the same row then we construst a vector, otherwise a matrix
                                     if first_cell_row == second_cell_row {
-                                        let mut vec = Vec::new();
-
-                                        for i in first_column_index..=second_column_index {
-                                            let cell_name = format!("{}{}", column_number_to_name(i), first_cell_row);
-                                            let cell_value = if let CellArgument::Value(e) = new_sheet.get(&cell_name) {
-                                                e
-                                            } else {
-                                                CellValue::Error("Cell does not contain a value".to_string())
-                                            };
-                                            vec.push(cell_value);
-                                        }
-
+                                        let vec = build_vector(&new_sheet, first_column_index, second_column_index, *first_cell_row);
                                         new_sheet.set(var_name, CellArgument::Vector(vec));
                                     } else if first_column_index == second_column_index {
-                                        let mut vec = Vec::new();
-
-                                        for i in *first_cell_row..=*second_cell_row {
-                                            let cell_name = format!("{}{}", column_number_to_name(first_column_index), i);
-                                            let cell_value = if let CellArgument::Value(e) = new_sheet.get(&cell_name) {
-                                                e
-                                            } else {
-                                                CellValue::Error("Cell does not contain a value".to_string())
-                                            };
-                                            vec.push(cell_value);
-                                        }
+                                        let vec = build_vector_by_row(&new_sheet, first_column_index, *first_cell_row, *second_cell_row);
                                         new_sheet.set(var_name, CellArgument::Vector(vec));
                                     } else {
-                                        let mut matrix: Vec<Vec<CellValue>> = Vec::new();
-                                        for i in *first_cell_row..=*second_cell_row {
-                                            let mut vec = Vec::new();
-                                            for j in first_column_index..=second_column_index {
-                                                let cell_name = format!("{}{}", column_number_to_name(j), i);
-                                                let cell_value = if let CellArgument::Value(e) = new_sheet.get(&cell_name) {
-                                                    e
-                                                } else {
-                                                    CellValue::Error("Cell does not contain a value".to_string())
-                                                };
-                                                vec.push(cell_value);
-                                            }
-                                            matrix.push(vec);
-                                        }
+                                        let matrix = build_matrix(&new_sheet, first_column_index, second_column_index, *first_cell_row, *second_cell_row);
                                         new_sheet.set(var_name, CellArgument::Matrix(matrix));
                                     }
                                 }
