@@ -74,3 +74,4 @@ pub fn build_matrix(sheet: &RSheet, col_start: u32, col_end: u32, row_start: u32
         .map(|i| build_vector(sheet, col_start, col_end, i))
         .collect()
 }
+
