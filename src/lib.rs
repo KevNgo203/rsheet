@@ -2,6 +2,7 @@ mod helpers;
 
 use crate::helpers::{RSheet, construct_cell, get_cell_value_or_error, build_vector, build_vector_by_row, build_matrix};
 use rsheet_lib::cell_expr::{CellArgument, CellExpr};
+use rsheet_lib::cell_value::CellValue;
 use rsheet_lib::cells::{column_name_to_number};
 use rsheet_lib::command::Command;
 use rsheet_lib::connect::{
@@ -41,7 +42,15 @@ where
                         Command::Get { cell_identifier } => {
                             let cell = construct_cell(cell_identifier);
                             let value = get_cell_value_or_error(&new_sheet, &cell);
-                            let reply = Reply::Value(cell, value);
+                            let reply= if let CellValue::Error(err_msg) = &value {
+                                if err_msg.contains("Cell relies on another cell with an error") {
+                                    Reply::Error(err_msg.clone())
+                                } else {
+                                    Reply::Value(cell.clone(), value.clone())
+                                }
+                            } else {
+                                Reply::Value(cell.clone(), value.clone())
+                            };
 
                             match send.write_message(reply) {
                                 WriteMessageResult::Ok => {
@@ -98,9 +107,17 @@ where
                                         let matrix = build_matrix(&new_sheet, first_column_index, second_column_index, *first_cell_row, *second_cell_row);
                                         new_sheet.set(var_name, CellArgument::Matrix(matrix));
                                     }
+                                } else if !new_sheet.cells.contains_key(&var_name) {
+                                    new_sheet.set(var_name.clone(), CellArgument::Value(CellValue::None));
                                 }
                             }
-                            let value = cell_expression.evaluate(&new_sheet.cells).unwrap();
+                            let value = match cell_expression.evaluate(&new_sheet.cells) {
+                                Ok(v) => v,
+                                Err(_) => {
+                                    let error_msg = get_cell_value_or_error(&new_sheet, &cell_expr);
+                                    CellValue::Error(format!("Error: A dependent cell contained an error: Cell relies on another cell with an error: {:?}", error_msg))
+                                },
+                            };
                             new_sheet.set(cell.clone(), CellArgument::Value(value.clone()));
                             continue; // No reply needed for Set command
                         }
