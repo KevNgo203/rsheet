@@ -2,24 +2,39 @@ use std::collections::HashMap;
 use rsheet_lib::command::CellIdentifier;
 use rsheet_lib::{cell_expr::CellArgument, cell_value::CellValue};
 use rsheet_lib::cells::column_number_to_name;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 pub struct RSheet {
-    pub cells: HashMap<String, CellArgument>,
+    pub cells: Arc<Mutex<HashMap<String, CellArgument>>>,
 }
 
 impl RSheet {
     pub fn new() -> Self {
         RSheet {
-            cells: HashMap::new(),
+            cells: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
     pub fn get(&self, id: &String) -> CellArgument {
-        self.cells.get(id).cloned().unwrap_or(CellArgument::Value(CellValue::None))
+        let cells = self.cells.lock().unwrap();
+        cells.get(id).cloned().unwrap_or(CellArgument::Value(CellValue::None))
     }
 
-    pub fn set(&mut self, id: String , value: CellArgument) {
-        self.cells.insert(id, value);
+    pub fn set(&self, id: String , value: CellArgument) {
+        let mut cells = self.cells.lock().unwrap();
+        cells.insert(id, value);
+    }
+
+    pub fn contains_key(&self, id: &str) -> bool {
+        let cells = self.cells.lock().unwrap();
+        cells.contains_key(id)
+    }
+
+    /// Lock and return a guard to the inner HashMap so callers can borrow `&HashMap<...>`
+    /// (e.g. for `CellExpr::evaluate(&cells)`). Caller must drop the guard before calling
+    /// methods that re-lock the same inner mutex (like `set`).
+    pub fn lock_cells(&self) -> MutexGuard<'_, HashMap<String, CellArgument>> {
+        self.cells.lock().unwrap()
     }
 }
 
