@@ -6,12 +6,16 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 pub struct RSheet {
     pub cells: Arc<Mutex<HashMap<String, CellArgument>>>,
+    pub dependencies: HashMap<String, Vec<String>>, // maps cell -> dependents
+    pub expressions: HashMap<String, String>, // maps cell -> its expression
 }
 
 impl RSheet {
     pub fn new() -> Self {
         RSheet {
             cells: Arc::new(Mutex::new(HashMap::new())),
+            dependencies: HashMap::new(),
+            expressions: HashMap::new(),
         }
     }
 

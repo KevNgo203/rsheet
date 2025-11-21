@@ -12,6 +12,7 @@ pub fn handle_connection<R, W>(
     mut recv: R,
     mut send: W,
     sheet: Arc<Mutex<RSheet>>,
+    tx: std::sync::mpsc::Sender<String>,
 )
 where
     R: Reader,
@@ -62,11 +63,26 @@ where
                         }
                         Command::Set { cell_identifier, cell_expr } => {
                             let cell = construct_cell(cell_identifier);
-                            let sheet_guard = sheet.lock().unwrap();
+
+                            // lock the outer sheet to update metadata (expressions/dependencies) first
+                            let mut sheet_guard = sheet.lock().unwrap();
                             let cell_expression = CellExpr::new(&cell_expr);
                             let variable_name_vec = cell_expression.find_variable_names();
-                            
+
+                            sheet_guard
+                                .expressions
+                                .insert(cell.clone(), cell_expr.clone());
+
                             for var_name in variable_name_vec {
+                                // Add dependencies
+                                if var_name != cell {
+                                    sheet_guard
+                                        .dependencies
+                                        .entry(var_name.clone())
+                                        .or_insert(Vec::new())
+                                        .push(cell.clone());
+                                }
+
                                 if var_name.contains("_") {
                                     let new_vec_name = var_name
                                         .split("_")
@@ -101,7 +117,7 @@ where
                                 }
                             }
 
-                            // short-lived lock of the inner HashMap for evaluation
+                            let old_val = sheet_guard.get(&cell);
                             let value = {
                                 let cells_guard = sheet_guard.lock_cells(); // MutexGuard<HashMap<...>>
                                 match cell_expression.evaluate(&*cells_guard) {
@@ -116,8 +132,10 @@ where
                                 }
                             }; 
 
-                            // println!("Evaluated value: {:?}", value);
                             sheet_guard.set(cell.clone(), CellArgument::Value(value.clone()));
+                            if old_val != CellArgument::Value(value.clone()) {
+                                tx.send(cell.clone()).ok(); // enqueue for worker thread
+                            }
                         }
                     },
                     Err(_) => {
